@@ -1239,10 +1239,8 @@ class DigitalTwin:
         all_faces = (self._sat_faces[np.newaxis, :, :]
                      + np.arange(n_sats, dtype=np.uint32)[:, np.newaxis, np.newaxis]
                      * self._sat_nv).reshape(-1, 3).astype(np.uint32)
-        all_color = np.tile(self._sat_color, (n_sats, 1)).astype(np.float32)
-
-        self.viz['scatter'].set_data(vertices=all_verts, faces=all_faces,
-                                      color=all_color)
+        md = MeshData(vertices=all_verts, faces=all_faces)
+        self.viz['scatter'].mesh_data = md
 
     def _update_satellite_arrows(self):
         """Update satellite LT direction arrows."""
@@ -1400,9 +1398,8 @@ class DigitalTwin:
         all_gs_faces = (self._gs_faces[np.newaxis, :, :]
                         + np.arange(n_gs, dtype=np.uint32)[:, np.newaxis, np.newaxis]
                         * self._gs_nv).reshape(-1, 3).astype(np.uint32)
-        all_gs_color = np.tile(self._gs_color, (n_gs, 1)).astype(np.float32)
-        self.viz['gs_mesh'].set_data(vertices=all_gs_verts, faces=all_gs_faces,
-                                      color=all_gs_color)
+        gs_md = MeshData(vertices=all_gs_verts, faces=all_gs_faces)
+        self.viz['gs_mesh'].mesh_data = gs_md
 
         # ── 2.  Build all coverage circles and cone beams ──────────
         n_sats = self.positions.shape[0]
