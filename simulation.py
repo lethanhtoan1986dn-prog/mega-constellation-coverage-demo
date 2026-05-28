@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Mega-constellation digital twin and visualization.
+"""Mega-constellation satellite coverage visualizer.
 
 This module loads Starlink TLE data, filters invalid satellites, computes Earth’s
-rotation, and visualizes Earth plus satellites in a 3D scene. It is structured to
-separate concerns:
+rotation, and visualizes Earth, satellites, and beam-coverage footprints in a 3D scene.
 
 1) Numerical kernels (Numba-accelerated) for geometry and filtering
 2) Visualization setup (Vispy scene construction)
-3) Digital twin orchestration (state update, rendering, and profiling)
+3) Coverage-focused digital twin (ground-station beam footprints, cone beams, GS links)
 """
 
 import cProfile
@@ -982,18 +981,6 @@ def setup_visualization(config: DigitalTwinConfig = DEFAULT_CONFIG) -> Dict[str,
     scatter = scene.visuals.Markers()
     view.add(scatter)
 
-    # Satellite arrows for LT directions.
-    satellite_arrow = scene.visuals.Arrow()
-    view.add(satellite_arrow)
-
-    # Lines for satellite LISL.
-    p_lisl = scene.visuals.Arrow()
-    view.add(p_lisl)
-
-    # Lines for connected LISL.
-    c_lisl = scene.visuals.Arrow()
-    view.add(c_lisl)
-
     # ── Beam-coverage visuals ──
     # Coverage circles drawn on (or just above) Earth surface
     coverage_circles = scene.visuals.Line()
@@ -1018,9 +1005,6 @@ def setup_visualization(config: DigitalTwinConfig = DEFAULT_CONFIG) -> Dict[str,
         "view": view,
         "sphere_visual": sphere_visual,
         "scatter": scatter,
-        "arrow": satellite_arrow,
-        "p_lisl": p_lisl,
-        "c_lisl": c_lisl,
         "coverage_circles": coverage_circles,
         "cone_beams": cone_beams,
         "gs_connections": gs_connections,
@@ -1056,12 +1040,9 @@ class DigitalTwin:
         Parameters:
             ts: Skyfield timescale.
             sat_array: Vectorized satellite propagation array.
-            sphere_visual: Vispy visual for the Earth sphere.
-            scatter: Vispy visual for satellite markers.
-            satellite_arrow: Vispy visual for satellite LT arrows.
-            p_lisl: Vispy visual for primary LISL lines.
-            c_lisl: Vispy visual for connected LISL lines.
-            canvas: Vispy SceneCanvas.
+            viz: Dictionary of Vispy visual components.
+            config: Digital twin configuration.
+            capture_config: Screenshot and GIF capture configuration.
         """
         self.ts = ts
         self.sat_array = sat_array
@@ -1413,21 +1394,10 @@ class DigitalTwin:
             toc = time.perf_counter()
             self.profiled_time['satellite_positions'] = toc - tic
             
-            # Update LT direction arrows for each satellite.
-            tic = time.perf_counter()
-            self._update_satellite_arrows()
-            toc = time.perf_counter()
-            self.profiled_time['satellite_arrows'] = toc - tic
-            
-            # Update LISL candidate edges and matching visualization.
-            tic = time.perf_counter()
-            self._update_links()
-            toc = time.perf_counter()
-            self.profiled_time['update_links'] = toc - tic
-
             # Update beam coverage (circles, cones, GS connections).
             self._update_coverages()
 
+            self.viz['text_top'].text = self._build_coverage_text()
             self.viz['text_bot'].text = self._build_status_text(cpu_usage, mem_usage)
             self.viz['text_top_right'].text = self._build_profile_text()
         except Exception as e:
@@ -1560,22 +1530,16 @@ class DigitalTwin:
         self.gif_count += 1
         logger.info(f"GIF saved to {filepath}")
 
-    def _build_link_summary_text(
-        self,
-        edges: np.ndarray,
-        filtered_edges: np.ndarray,
-        filtered_expanded: np.ndarray,
-        connected_lts: np.ndarray,
-    ) -> str:
-        """Format link statistics shown in the top-left overlay."""
-        text = "CONSTELLATION CONFIG:\n"
-        text += f"#n_sats: {self.positions.shape[0]}\n"
-        text += f"#n_q_es: {edges.shape[0]}\n"
-        text += f"#n_p_sp: {filtered_edges.shape[0]}\n"
-        text += f"#n_p_lp: {filtered_expanded.shape[0]}\n"
-        text += f"#n_c_lp: {connected_lts.shape[0]}\n"
-        text += f"FOR_THETA: +/-{self.config.for_theta_deg:.0f}°\n"
-        text += f"MAX_DIST: {self.config.lisl_max_distance_km:.0f} km\n"
+    def _build_coverage_text(self) -> str:
+        """Format coverage statistics shown in the top-left overlay."""
+        text = "COVERAGE STATUS:\n"
+        text += f"# Satellites: {self.positions.shape[0]}\n"
+        text += f"# Ground stations: {len(self.gs_names)}\n"
+        text += f"Alt: {self.config.satellite_altitude_km:.0f} km\n"
+        text += f"Min elevation: {self.config.gs_min_elevation_deg:.0f}deg\n"
+        text += f"Cone half-angle: {math.degrees(self.cone_half_angle):.1f}deg\n"
+        text += f"Footprint radius: {math.degrees(self.earth_central_angle):.1f}deg\n"
+        text += f"Beam coverage: {'ON' if self.config.show_coverage else 'OFF'}\n"
         return text
 
     def _build_status_text(self, cpu_usage: float, mem_usage: float) -> str:
