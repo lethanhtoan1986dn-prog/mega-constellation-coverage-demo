@@ -242,6 +242,68 @@ def check_sat_covers_gs(sat_pos: np.ndarray,
     return math.acos(cos_dist) <= earth_central_angle
 
 
+# ───────────────────────────────────────────────────────────
+# 3D icon builders — STK-style satellite & ground-station meshes
+# ───────────────────────────────────────────────────────────
+
+def _box_verts(hx, hy, hz):
+    """Return 8 vertices of an axis-aligned box centred at origin."""
+    return np.array([
+        [-hx, -hy, -hz], [ hx, -hy, -hz], [ hx,  hy, -hz], [-hx,  hy, -hz],
+        [-hx, -hy,  hz], [ hx, -hy,  hz], [ hx,  hy,  hz], [-hx,  hy,  hz],
+    ], dtype=np.float32)
+
+_BOX_FACES = np.array([
+    [0,1,2], [0,2,3], [4,6,5], [4,7,6],
+    [0,4,5], [0,5,1], [3,2,6], [3,6,7],
+    [1,5,6], [1,6,2], [0,3,7], [0,7,4],
+], dtype=np.uint32)
+
+def _make_satellite_icon(scale=0.007):
+    """STK-style satellite: central bus box + two solar-panel wings."""
+    b = scale
+    body = _box_verts(b, b * 0.6, b)
+    pw = scale * 3.0; pt = scale * 0.10; ph = scale * 0.55
+    lp = _box_verts(0, pt, ph); lp[:, 0] -= b            # left panel
+    rp = _box_verts(0, pt, ph); rp[:, 0] += b + pw       # right panel
+    lp[:, 0] -= pw / 2; rp[:, 0] += pw / 2                # center panels
+    verts = np.vstack([body, lp, rp]).astype(np.float32)
+    faces = np.vstack([_BOX_FACES, _BOX_FACES + 8, _BOX_FACES + 16]).astype(np.uint32)
+    nv = len(verts)
+    # per-vertex colour: body = darker blue, panels = lighter metallic blue
+    color = np.tile([0.12, 0.30, 0.68, 1.0], (nv, 1)).astype(np.float32)
+    color[8:24] = [0.55, 0.70, 0.90, 1.0]  # panels lighter
+    return verts, faces, color
+
+def _make_gs_icon(scale=0.010):
+    """STK-style ground station: pole + parabolic dish + LNB feed horn."""
+    ph = scale * 5.5; pr = scale * 0.22
+    pole = _box_verts(pr, ph / 2, pr); pole[:, 1] += ph / 2  # shift up
+    dr = scale * 2.0; dh = scale * 0.5
+    n_rim = 14
+    dish_y = ph + dh
+    rim = np.array([[dr * math.cos(2 * math.pi * i / n_rim), dish_y,
+                      dr * math.sin(2 * math.pi * i / n_rim)]
+                    for i in range(n_rim)], dtype=np.float32)
+    centre = np.array([[0, ph, 0]], dtype=np.float32)
+    # LNB feed horn: tiny box above dish centre
+    lnb = _box_verts(scale * 0.2, scale * 0.12, scale * 0.2)
+    lnb[:, 1] += dish_y + scale * 0.5
+    verts = np.vstack([pole, centre, rim, lnb]).astype(np.float32)
+    # --- faces ---
+    pole_faces = _BOX_FACES.copy()
+    # dish: triangle fan centre→rim
+    ci = 8; dish_f = [[ci, 9 + i, 9 + (i + 1) % n_rim] for i in range(n_rim)]
+    dish_f += [[ci, 9 + (i + 1) % n_rim, 9 + i] for i in range(n_rim)]
+    lnb_faces = _BOX_FACES + (9 + n_rim)
+    faces = np.vstack([pole_faces, np.array(dish_f, dtype=np.uint32), lnb_faces]).astype(np.uint32)
+    nv = len(verts)
+    color = np.tile([0.45, 0.35, 0.18, 1.0], (nv, 1)).astype(np.float32)   # warm grey
+    color[ci:ci + 1 + n_rim] = [0.82, 0.78, 0.72, 1.0]                     # dish: off-white
+    color[-8:] = [0.15, 0.15, 0.15, 1.0]                                   # LNB: dark
+    return verts, faces, color
+
+
 # ---------------------------
 # Numba-accelerated kernels
 # ---------------------------
@@ -977,9 +1039,9 @@ def setup_visualization(config: DigitalTwinConfig = DEFAULT_CONFIG) -> Dict[str,
     gloo.set_state(depth_test=True, depth_mask=True, blend=True,
                blend_func=('src_alpha', 'one_minus_src_alpha'))
     
-    # Create markers for satellite positions.
-    scatter = scene.visuals.Markers()
-    view.add(scatter)
+    # Create 3D satellite meshes — pre-built during init, updated each frame
+    satellite_mesh = scene.visuals.Mesh(color=(0.2, 0.4, 0.8, 1.0), shading='flat')
+    view.add(satellite_mesh)
 
     # ── Beam-coverage visuals ──
     # Coverage circles drawn on (or just above) Earth surface
@@ -994,17 +1056,9 @@ def setup_visualization(config: DigitalTwinConfig = DEFAULT_CONFIG) -> Dict[str,
     gs_connections = scene.visuals.Line()
     view.add(gs_connections)
 
-    # Ground-station antenna poles (vertical lines from Earth surface)
-    gs_poles = scene.visuals.Line()
-    view.add(gs_poles)
-
-    # Ground-station beacon markers (glowing top of antenna)
-    gs_beacons = scene.visuals.Markers()
-    view.add(gs_beacons)
-
-    # Ground-station markers (base points)
-    gs_markers = scene.visuals.Markers()
-    view.add(gs_markers)
+    # Ground-station 3D antenna dish meshes
+    gs_mesh = scene.visuals.Mesh(color=(0.5, 0.4, 0.2, 1.0), shading='flat')
+    view.add(gs_mesh)
 
     text_overlays = _create_text_overlays(canvas)
 
@@ -1012,13 +1066,11 @@ def setup_visualization(config: DigitalTwinConfig = DEFAULT_CONFIG) -> Dict[str,
         "canvas": canvas,
         "view": view,
         "sphere_visual": sphere_visual,
-        "scatter": scatter,
+        "scatter": satellite_mesh,
         "coverage_circles": coverage_circles,
         "cone_beams": cone_beams,
         "gs_connections": gs_connections,
-        "gs_poles": gs_poles,
-        "gs_beacons": gs_beacons,
-        "gs_markers": gs_markers,
+        "gs_mesh": gs_mesh,
         **text_overlays,
     }
 
@@ -1105,6 +1157,14 @@ class DigitalTwin:
         self._conn_color = np.array(
             [0.10, 0.75, 1.0, 0.90], dtype=np.float32)   # bright blue
 
+        # ── 3D icon geometry (STK-style satellite + ground-station models) ──
+        self._sat_verts, self._sat_faces, self._sat_color = _make_satellite_icon()
+        self._sat_nv = len(self._sat_verts)
+        self._sat_nf = len(self._sat_faces)
+        self._gs_verts, self._gs_faces, self._gs_color = _make_gs_icon()
+        self._gs_nv = len(self._gs_verts)
+        self._gs_nf = len(self._gs_faces)
+
         self.profiled_time = {}
         self.screenshot_count = 0
         self.gif_count = 0
@@ -1172,8 +1232,17 @@ class DigitalTwin:
         self.positions = positions @ R_teme_to_icrs
         self.velocities = velocities @ R_teme_to_icrs
 
-        self.viz['scatter'].set_data(self.positions, face_color=[0.95, 0.95, 1.0, 0.95],
-                                      size=16, edge_width=2, edge_color=[0.2, 0.4, 0.9, 1.0])
+        # Build combined satellite mesh: translate icon to each position
+        n_sats = len(self.positions)
+        all_verts = (self._sat_verts[np.newaxis, :, :]
+                     + self.positions[:, np.newaxis, :]).reshape(-1, 3).astype(np.float32)
+        all_faces = (self._sat_faces[np.newaxis, :, :]
+                     + np.arange(n_sats, dtype=np.uint32)[:, np.newaxis, np.newaxis]
+                     * self._sat_nv).reshape(-1, 3).astype(np.uint32)
+        all_color = np.tile(self._sat_color, (n_sats, 1)).astype(np.float32)
+
+        self.viz['scatter'].set_data(vertices=all_verts, faces=all_faces,
+                                      color=all_color)
 
     def _update_satellite_arrows(self):
         """Update satellite LT direction arrows."""
@@ -1325,31 +1394,15 @@ class DigitalTwin:
             gs_pos[j, 1] = x * sin_r + y * cos_r
             gs_pos[j, 2] = z
 
-        # Base markers at surface
-        self.viz['gs_markers'].set_data(
-            gs_pos, face_color=np.tile(self.gs_color, (n_gs, 1)),
-            size=14, edge_width=1, edge_color='white',
-        )
-
-        # Antenna poles: vertical lines from surface to antenna top
-        pole_h = 0.07
-        pole_data = np.empty((n_gs * 2, 3), dtype=np.float32)
-        for j in range(n_gs):
-            pole_data[2 * j]     = gs_pos[j] * 1.001            # bottom (just above surface)
-            pole_data[2 * j + 1] = gs_pos[j] * (1.0 + pole_h)   # top
-
-        self.viz['gs_poles'].set_data(
-            pos=pole_data, color=[0.95, 0.78, 0.15, 1.0],   # gold pole
-            width=4.5, connect='segments',
-        )
-
-        # Beacon markers at top of antenna poles
-        beacon_pos = gs_pos * (1.0 + pole_h)
-        n_gs = len(beacon_pos)
-        self.viz['gs_beacons'].set_data(
-            beacon_pos, face_color=np.tile([1.0, 0.84, 0.0, 1.0], (n_gs, 1)),
-            size=24, edge_width=3, edge_color=[1.0, 1.0, 1.0, 0.8],
-        )
+        # Build combined ground-station mesh (translate dish icon to each GS position)
+        all_gs_verts = (self._gs_verts[np.newaxis, :, :]
+                        + gs_pos[:, np.newaxis, :]).reshape(-1, 3).astype(np.float32)
+        all_gs_faces = (self._gs_faces[np.newaxis, :, :]
+                        + np.arange(n_gs, dtype=np.uint32)[:, np.newaxis, np.newaxis]
+                        * self._gs_nv).reshape(-1, 3).astype(np.uint32)
+        all_gs_color = np.tile(self._gs_color, (n_gs, 1)).astype(np.float32)
+        self.viz['gs_mesh'].set_data(vertices=all_gs_verts, faces=all_gs_faces,
+                                      color=all_gs_color)
 
         # ── 2.  Build all coverage circles and cone beams ──────────
         n_sats = self.positions.shape[0]
