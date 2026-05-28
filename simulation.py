@@ -1532,14 +1532,13 @@ class DigitalTwin:
 
     def _build_coverage_text(self) -> str:
         """Format coverage statistics shown in the top-left overlay."""
+        fp_km = self.earth_central_angle * self.config.earth_radius_km
         text = "COVERAGE STATUS:\n"
         text += f"# Satellites: {self.positions.shape[0]}\n"
         text += f"# Ground stations: {len(self.gs_names)}\n"
-        text += f"Alt: {self.config.satellite_altitude_km:.0f} km\n"
         text += f"Min elevation: {self.config.gs_min_elevation_deg:.0f}deg\n"
         text += f"Cone half-angle: {math.degrees(self.cone_half_angle):.1f}deg\n"
-        text += f"Footprint radius: {math.degrees(self.earth_central_angle):.1f}deg\n"
-        text += f"Beam coverage: {'ON' if self.config.show_coverage else 'OFF'}\n"
+        text += f"Footprint radius: {fp_km:.0f} km\n"
         return text
 
     def _build_status_text(self, cpu_usage: float, mem_usage: float) -> str:
