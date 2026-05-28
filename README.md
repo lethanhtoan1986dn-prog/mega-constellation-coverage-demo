@@ -1,90 +1,80 @@
-# Satellite Coverage Beam Visualizer
-## 3D Real-Time Beam Footprint Visualization
+# Satellite Beam Coverage Visualizer
+## 3D Real-Time Downlink Beam Footprint Visualization
 
-*Track thousands of Starlink satellites in real time and visualize their beam-coverage footprints on Earth.*
+*Track thousands of Starlink satellites in real time and visualize their downlink beam-coverage footprints on Earth.*
 
-![Coverage Demo](images/gifs/gif_example_low_res.gif)
+![Coverage Demo](images/example/zoomed_canvas.png)
 
-**How many satellites can cover a given point on Earth at any moment?** This tool loads real satellite orbital data (TLE), propagates their positions in real time, and dynamically computes and renders each satellite's beam-coverage footprint — showing precisely which regions of Earth are illuminated by satellite downlink beams.
+**How many satellites can cover a given point on Earth at any moment?** This tool loads real satellite orbital data (TLE), propagates their positions, and dynamically computes each satellite's beam footprint — showing which regions of Earth are illuminated by satellite downlink beams right now.
 
 ## Features
 
 - **Live satellite tracking** — Real TLE data from Celestrak; satellite positions update every frame
-- **Dynamic beam-coverage footprints** — Every satellite's beam footprint is computed in real time using the satellite altitude, Earth radius, and minimum ground-station elevation angle
-- **Ground station visibility** — Pre-defined ground stations (London, Shanghai) turn bright blue when covered by a satellite beam
-- **Cone beam visualization** — Thin lines from each satellite to its coverage-circle edge show the 3D beam geometry
-- **High-performance kernels** — Numba-accelerated numerical computation for thousands of satellites
-- **Interactive 3D viewer** — Rotate, zoom, and capture screenshots
+- **Dynamic beam-coverage footprints** — Every satellite's beam footprint computed in real time (altitude, Earth radius, minimum elevation angle)
+- **Ground station visibility** — Pre-defined ground stations (London, Shanghai) with 3D antenna tower markers; connection lines turn bright blue when covered
+- **Antenna tower markers** — Each ground station shown as a 3D vertical antenna pole with a glowing gold beacon on top
+- **Cone beam geometry** — Thin lines from each satellite to its coverage-circle edge visualize the 3D beam cone
+- **High-performance kernels** — Numba-accelerated computation for thousands of satellites
+- **Interactive 3D viewer** — Rotate, zoom, screenshots, and GIF recording
 
-## How Coverage Beams Are Computed
+## Beam Coverage Geometry
 
-The beam footprint (coverage circle) is determined by three parameters:
+The coverage footprint is determined by three parameters:
 
 | Parameter | Value | Description |
 |-----------|-------|-------------|
 | Satellite altitude | 550 km | Height above Earth surface |
 | Earth radius | 6,371 km | For angular conversion |
-| Min. elevation angle | 25 deg | Minimum look-angle above horizon for a ground user |
+| Min. elevation angle | 25deg | Minimum look-angle above horizon |
 
-Using the law of sines on the Earth-centre--satellite--ground-point triangle:
-
-- **Cone half-angle**: Maximum off-nadir angle the satellite can steer (≈53deg)
-- **Earth central angle**: Angular radius of the footprint on Earth's surface (≈12deg)
-
-Each satellite's beam footprint is rendered as a light-blue circle on the Earth's surface, with cone lines connecting the satellite to the footprint edge.
+From these, the **cone half-angle** (max off-nadir steering angle) and **Earth central angle** (footprint angular radius) are derived using the law of sines. Each satellite's beam footprint is rendered as a light-blue circle, with thin cone lines from satellite to footprint edge.
 
 ## Mouse & Keyboard Controls
 
 - **Left-drag** — Rotate camera around Earth
 - **Scroll wheel** — Zoom in/out
 - **Double-click** — Save a high-res screenshot to `/images/`
-- **Left-click (hold)** — Record a GIF while holding the button
+- **Left-click (hold)** — Record a GIF
 
 ## Configuration
 
-Simulation parameters are in `simulation.py` under `DigitalTwinConfig`:
+Key parameters in `DigitalTwinConfig` (`simulation.py`):
 
 ```python
-@dataclass(frozen=True)
-class DigitalTwinConfig:
-    ground_stations: Tuple[...] = (
-        ("London",   51.5074,  -0.1278),
-        ("Shanghai", 31.2304, 121.4737),
-    )
-    gs_min_elevation_deg: float = 25.0       # minimum look-angle above horizon
-    satellite_altitude_km: float = 550.0      # altitude used for footprint radius
-    show_coverage: bool = True                # toggle beam-coverage visuals
-    coverage_num_points: int = 48             # circle discretisation
-    time_scale: float = 10.0                  # run 10x faster than real time
+ground_stations = (
+    ("London",   51.5074,  -0.1278),
+    ("Shanghai", 31.2304, 121.4737),
+)
+gs_min_elevation_deg = 25.0     # minimum look-angle for ground user
+satellite_altitude_km = 550.0   # beam-footprint radius depends on this
+show_coverage = True            # toggle beam visuals
+time_scale = 10.0               # simulation speed (10x real-time)
 ```
 
 ## Quick Start
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate       # Linux/macOS
 .\.venv\Scripts\activate        # Windows
+# source .venv/bin/activate     # Linux / macOS
 
 pip install -r requirements.txt
 python simulation.py
 ```
 
+First run takes 30--60 seconds for Numba JIT compilation.
+
 ## Requirements
 
 - Python 3.9+
-- GPU/OpenGL-capable environment for Vispy rendering
+- GPU / OpenGL-capable environment (Vispy)
 
 ## Performance Tips
 
-- On first run, Numba JIT-compiles kernels (30--60 s delay is normal)
-- Reduce `time_scale` for easier real-time computation
-- Adjust `coverage_num_points` (lower = faster, coarser circles)
-- Use a smaller TLE set for faster startup
+- Reduce `time_scale` if FPS is low
+- Lower `coverage_num_points` for faster circle rendering
+- Use fewer satellites (smaller TLE set)
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
-
----
-
-Based on original work by Zhouyou Gu (SUTD), modified to focus on satellite beam-coverage visualization.
+MIT License. See [LICENSE](LICENSE).
