@@ -994,15 +994,7 @@ def setup_visualization(config: DigitalTwinConfig = DEFAULT_CONFIG) -> Dict[str,
     gs_connections = scene.visuals.Line()
     view.add(gs_connections)
 
-    # Ground-station antenna poles (vertical lines from Earth surface)
-    gs_poles = scene.visuals.Line()
-    view.add(gs_poles)
-
-    # Ground-station beacon markers (glowing top of antenna)
-    gs_beacons = scene.visuals.Markers()
-    view.add(gs_beacons)
-
-    # Ground-station markers (base points)
+    # Ground-station markers
     gs_markers = scene.visuals.Markers()
     view.add(gs_markers)
 
@@ -1016,8 +1008,6 @@ def setup_visualization(config: DigitalTwinConfig = DEFAULT_CONFIG) -> Dict[str,
         "coverage_circles": coverage_circles,
         "cone_beams": cone_beams,
         "gs_connections": gs_connections,
-        "gs_poles": gs_poles,
-        "gs_beacons": gs_beacons,
         "gs_markers": gs_markers,
         **text_overlays,
     }
@@ -1172,8 +1162,7 @@ class DigitalTwin:
         self.positions = positions @ R_teme_to_icrs
         self.velocities = velocities @ R_teme_to_icrs
 
-        self.viz['scatter'].set_data(self.positions, face_color=[0.95, 0.95, 1.0, 0.95],
-                                      size=16, edge_width=2, edge_color=[0.2, 0.4, 0.9, 1.0])
+        self.viz['scatter'].set_data(self.positions, face_color=[0, 0, 0, 0.5], size=10, edge_width=0)
 
     def _update_satellite_arrows(self):
         """Update satellite LT direction arrows."""
@@ -1325,30 +1314,9 @@ class DigitalTwin:
             gs_pos[j, 1] = x * sin_r + y * cos_r
             gs_pos[j, 2] = z
 
-        # Base markers at surface
         self.viz['gs_markers'].set_data(
             gs_pos, face_color=np.tile(self.gs_color, (n_gs, 1)),
             size=14, edge_width=1, edge_color='white',
-        )
-
-        # Antenna poles: vertical lines from surface to antenna top
-        pole_h = 0.07
-        pole_data = np.empty((n_gs * 2, 3), dtype=np.float32)
-        for j in range(n_gs):
-            pole_data[2 * j]     = gs_pos[j] * 1.001            # bottom (just above surface)
-            pole_data[2 * j + 1] = gs_pos[j] * (1.0 + pole_h)   # top
-
-        self.viz['gs_poles'].set_data(
-            pos=pole_data, color=[0.95, 0.78, 0.15, 1.0],   # gold pole
-            width=4.5, connect='segments',
-        )
-
-        # Beacon markers at top of antenna poles
-        beacon_pos = gs_pos * (1.0 + pole_h)
-        n_gs = len(beacon_pos)
-        self.viz['gs_beacons'].set_data(
-            beacon_pos, face_color=np.tile([1.0, 0.84, 0.0, 1.0], (n_gs, 1)),
-            size=24, edge_width=3, edge_color=[1.0, 1.0, 1.0, 0.8],
         )
 
         # ── 2.  Build all coverage circles and cone beams ──────────
